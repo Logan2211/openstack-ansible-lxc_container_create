@@ -28,6 +28,24 @@ lxc_container_interface: |
   {% endif %}
   ### end generated network for [ {{ item.value.interface }} ] ###
 
+lxc_container_rclocal: |
+  #!/bin/sh -e
+  #
+  # rc.local
+  #
+  # This script is executed at the end of each multiuser runlevel.
+  # Make sure that the script will "exit 0" on success or any other
+  # value on error.
+  #
+  # In order to enable or disable this script just change the execution
+  # bits.
+  #
+  # By default this script does nothing.
+
+  { set -x; ip link; ip addr; ls -lh /etc/network/interfaces.d; cat /etc/network/interfaces.d/*; cat /var/log/upstart/networking.log; } > /tmp/netdebug 2>&1
+  { set -x; sleep 30; echo waited 30 seconds for teh system to init. lets see what the state is; ip link; ip addr; ls -lh /etc/network/interfaces.d; cat /etc/network/interfaces.d/*; echo trying to bring some interfaces up; ifup -v -a; ip link; ip addr; cat /var/log/upstart/networking.log; tail -n 1000 /var/log/syslog; } >> /tmp/netdebug 2>&1&
+  exit 0
+
 # Default interface file
 lxc_container_default_interfaces: |
   # The loopback network interface

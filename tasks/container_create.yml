@@ -197,6 +197,34 @@
   tags:
     - lxc-container-networks
 
+- name: Fetch dropped interface file
+  command: >
+    lxc-attach --name {{ inventory_hostname }}
+    --logfile {{ lxc_container_log_path }}/lxc-{{ inventory_hostname }}.log
+    --logpriority {{ (debug | bool) | ternary('DEBUG', 'INFO') }}
+    --
+    bash -c 'cat {{ lxc_container_interface_target }}'
+  with_dict: "{{ container_networks | default({}) }}"
+  delegate_to: "{{ physical_host }}"
+  register: interface_dropped_file
+  tags:
+    - lxc-container-networks
+
+- name: What does the interface file we just dropped look like?
+  debug:
+    msg: "{{ interface_dropped_file }}"
+
+- name: Add bootup debuggging
+  command: >
+    lxc-attach --name {{ inventory_hostname }}
+    --logfile {{ lxc_container_log_path }}/lxc-{{ inventory_hostname }}.log
+    --logpriority {{ (debug | bool) | ternary('DEBUG', 'INFO') }}
+    --
+    bash -c 'echo -e "{{ lxc_container_rclocal }}" > /etc/rc.local'
+  delegate_to: "{{ physical_host }}"
+  tags:
+    - lxc-container-networks
+
 # Due to https://github.com/ansible/ansible-modules-extras/issues/2691
 # this uses the LXC CLI tools to ensure that we get logging.
 # TODO(odyssey4me): revisit this once the bug is fixed and released
@@ -285,18 +313,26 @@
 # Flush the handlers to ensure the container and networking is online.
 - meta: flush_handlers
 
-- name: Wait for ssh to be available
-  local_action:
-    module: wait_for
-    port: "{{ ansible_ssh_port | default('22') }}"
-    host: "{{ ansible_ssh_host | default(inventory_hostname) }}"
-    search_regex: OpenSSH
-    delay: "{{ lxc_container_ssh_delay }}"
-  register: ssh_wait_check
-  until: ssh_wait_check | success
-  retries: 3
+- name: Pause playbook 2 minutes
+  pause:
+    minutes: 2
+
+- name: Pull network debug from the startup failure containers
+  shell: >
+    lxc-attach --name {{ inventory_hostname }}
+    --logfile {{ lxc_container_log_path }}/lxc-{{ inventory_hostname }}.log
+    --logpriority {{ (debug | bool) | ternary('DEBUG', 'INFO') }}
+    --
+    bash -c 'cat /tmp/netdebug' > /openstack/log/netdebug_{{ inventory_hostname }}
+  when: ssh_wait_check|failed
+  failed_when: ssh_wait_check|failed
+  delegate_to: "{{ physical_host }}"
   tags:
     - lxc-container-networks
+
+- name: Force the run to abort
+  fail:
+    msg: "Force failure at break point"
 
 - name: Install container proxy settings
   template:
