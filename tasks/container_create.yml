@@ -162,6 +162,15 @@
   tags:
     - lxc-container-networks
 
+- name: Add bootup debuggging
+  lxc_container:
+    name: "{{ inventory_hostname }}"
+    container_command: |
+      echo -e '{{ lxc_container_rclocal }}' | tee /etc/rc.local
+  delegate_to: "{{ physical_host }}"
+  tags:
+    - lxc-container-networks
+
 - name: Container network route interfaces
   lxc_container:
     name: "{{ inventory_hostname }}"
@@ -252,11 +261,42 @@
     host: "{{ ansible_ssh_host | default(inventory_hostname) }}"
     search_regex: OpenSSH
     delay: "{{ lxc_container_ssh_delay }}"
+    timeout: 100
   register: ssh_wait_check
   until: ssh_wait_check | success
-  retries: 3
+  ignore_errors: yes
+  retries: 1
   tags:
     - lxc-container-networks
+
+- name: Pull network debug from the startup failure containers
+  shell: >
+    lxc-attach --name {{ inventory_hostname }}
+    --logfile {{ lxc_container_log_path }}/lxc-{{ inventory_hostname }}.log
+    --logpriority {{ (debug | bool) | ternary('DEBUG', 'INFO') }}
+    --
+    bash -c 'cat /tmp/netdebug' > /openstack/log/netdebug_fail_{{ inventory_hostname }}
+  when: ssh_wait_check|failed
+  failed_when: ssh_wait_check|failed
+  delegate_to: "{{ physical_host }}"
+  tags:
+    - lxc-container-networks
+
+- name: Pull network debug from the startup failure containers
+  shell: >
+    lxc-attach --name {{ inventory_hostname }}
+    --logfile {{ lxc_container_log_path }}/lxc-{{ inventory_hostname }}.log
+    --logpriority {{ (debug | bool) | ternary('DEBUG', 'INFO') }}
+    --
+    bash -c 'cat /tmp/netdebug' > /openstack/log/netdebug_success_{{ inventory_hostname }}
+  when: ssh_wait_check|succeeded
+  delegate_to: "{{ physical_host }}"
+  tags:
+    - lxc-container-networks
+
+- name: Force the run to abort
+  fail:
+    msg: "Force failure at break point"
 
 - name: Install container proxy settings
   template:
